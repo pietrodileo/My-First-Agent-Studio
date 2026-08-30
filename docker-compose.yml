@@ -1,0 +1,25 @@
+services:
+  iris:
+    build: .
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1/}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+    ports:
+      - "9392:52773"
+      - "9391:1972"
+    healthcheck:
+      test: ["CMD", "iris", "session", "IRIS", "-U", "%SYS", "halt"]
+      interval: 2s
+      timeout: 5s
+      retries: 90
+      start_period: 5s
+  frontend:
+    profiles: ["ui"]
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    depends_on:
+      iris:
+        condition: service_healthy
+    ports:
+      - "5174:80"

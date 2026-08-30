@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "objectscript",
+      "request": "launch",
+      "name": "Debug Basic Agent Demo",
+      "program": "##class(Test.BasicDemo).Run()"
+    },
+    {
+      "type": "objectscript",
+      "request": "launch",
+      "name": "Debug Patient Analysis Demo",
+      "program": "##class(Test.PatientAnalysisDemo).Run()"
+    },
+    {
+      "type": "objectscript",
+      "request": "launch",
+      "name": "Debug Agent UI Discovery",
+      "program": "##class(AgentTestUI.Test).Run()"
+    },
+    {
+      "type": "objectscript",
+      "request": "attach",
+      "name": "Attach to IRIS Process",
+      "processId": "${command:PickProcess}",
+      "system": true
+    }
+  ]
+}

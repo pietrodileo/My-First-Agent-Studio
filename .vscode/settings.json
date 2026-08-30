@@ -1,0 +1,19 @@
+{
+  "files.associations": {
+    "Dockerfile*": "dockerfile",
+    "iris.script": "objectscript"
+  },
+  "objectscript.conn": {
+    "active": false,
+    "ns": "FIRST_AGENT",
+    "username": "_SYSTEM",
+    "password": "SYS",
+    "docker-compose": {
+      "service": "iris",
+      "internalPort": 52773
+    },
+    "links": {
+      "IRIS Management Portal": "${serverUrl}/csp/sys/UtilHome.csp?$NAMESPACE=FIRST_AGENT"
+    }
+  }
+}

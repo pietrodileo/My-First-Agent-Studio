@@ -1,0 +1,10 @@
+[Actions]
+ModifyService:Name=%Service_CallIn,Enabled=1,AutheEnabled=48
+CreateResource:Name=%DB_FIRST_AGENT_DATA,Description="First agent data"
+CreateDatabase:Name=FIRST_AGENT_DATA,Directory=/usr/irissys/mgr/FIRST_AGENT_DATA,Resource=%DB_FIRST_AGENT_DATA
+CreateResource:Name=%DB_FIRST_AGENT_CODE,Description="First agent code"
+CreateDatabase:Name=FIRST_AGENT_CODE,Directory=/usr/irissys/mgr/FIRST_AGENT_CODE,Resource=%DB_FIRST_AGENT_CODE
+CreateNamespace:Name=FIRST_AGENT,Globals=FIRST_AGENT_DATA,Routines=FIRST_AGENT_CODE,Interop=1
+[Startup]
+SystemMode=AI Hub EAP
+

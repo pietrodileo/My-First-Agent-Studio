@@ -1,0 +1,6 @@
+# Local Python artifacts are not part of the image.
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd

@@ -1,0 +1,61 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "FA - Docker: Build and Start Agent Only",
+      "type": "shell",
+      "command": "docker compose up -d --build --wait --wait-timeout 180 iris",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "FA - Docker: Build and Start Everything",
+      "type": "shell",
+      "command": "docker compose --profile ui up -d --build --wait --wait-timeout 180",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "FA - Docker: See Logs",
+      "type": "shell",
+      "command": "docker compose --profile ui logs --follow --tail 200",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "FA - Docker: Cleanup Everything",
+      "type": "shell",
+      "command": "docker compose --profile ui down --volumes --remove-orphans --rmi all",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "FA - Open: IRIS Management Portal",
+      "type": "shell",
+      "command": "open http://localhost:9392/csp/sys/UtilHome.csp",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "FA - Open: Agent UI",
+      "type": "shell",
+      "command": "open http://localhost:5174",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "FA - Run: Basic Demo",
+      "type": "shell",
+      "command": "docker compose exec iris iris session IRIS -U FIRST_AGENT '##class(Test.BasicDemo).Run()'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "FA - Run: Patient Analysis Demo",
+      "type": "shell",
+      "command": "docker compose exec iris iris session IRIS -U FIRST_AGENT '##class(Test.PatientAnalysisDemo).Run()'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}
