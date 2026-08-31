@@ -13,6 +13,7 @@ XData UrlMap
 <Route Url="/conversations" Method="POST" Call="Start"/>
 <Route Url="/conversations/:id" Method="GET" Call="Conversation"/>
 <Route Url="/conversations/:id/messages" Method="POST" Call="Send"/>
+<Route Url="/conversations/:id/skills" Method="POST" Call="UpdateSkills"/>
 <Route Url="/conversations/:id" Method="DELETE" Call="Delete"/>
 </Routes>
 }
@@ -87,6 +88,19 @@ ClassMethod Conversation(id As %String) As %Status
 {
   Set sc=##class(AgentTestUI.Runtime).Conversation(id,.result)
   If $$$ISERR(sc) Quit ..WriteError(sc,404)
+  Set %response.ContentType="application/json"
+  Set %response.IgnoreRESTOutput=0
+  Write result.%ToJSON()
+  Set %response.IgnoreRESTOutput=1
+  Quit $$$OK
+}
+
+ClassMethod UpdateSkills(id As %String) As %Status
+{
+  Set body=..Body(.sc)
+  If $$$ISERR(sc) Quit ..WriteError(sc,400)
+  Set sc=##class(AgentTestUI.Runtime).UpdateSkills(id,body.%Get("activeSkills",[]),.result)
+  If $$$ISERR(sc) Quit ..WriteError(sc,400)
   Set %response.ContentType="application/json"
   Set %response.IgnoreRESTOutput=0
   Write result.%ToJSON()

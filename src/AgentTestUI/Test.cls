@@ -12,7 +12,37 @@ ClassMethod Run() As %Status
   Write "PASS: native %AI.Agent discovery",!
   Set sc=..Skills()
   If $$$ISERR(sc) Quit sc
+  Set sc=..SkillCommands()
+  If $$$ISERR(sc) Quit sc
   Quit $$$OK
+}
+
+/// Commands persist without model inference; clean up only the test-owned chat.
+ClassMethod SkillCommands() As %Status
+{
+  Set sc=##class(AgentTestUI.Runtime).Start("Test.Agents.SimpleAgent","",[],.id)
+  If $$$ISERR(sc) Quit sc
+  Try {
+    For skills=["Test.Skill.Caveman"],[] {
+      Set sc=##class(AgentTestUI.Runtime).UpdateSkills(id,skills,.result)
+      If $$$ISERR(sc) Throw ##class(%Exception.StatusException).CreateFromStatus(sc)
+      If result.activeSkills.%ToJSON()'=skills.%ToJSON() Throw ##class(%Exception.General).%New("Skill command not persisted")
+      Set row=##class(AgentTestUI.Data.Conversation).Open(id)
+      Set sc=##class(AgentTestUI.Runtime).Agent(row.AgentClass,"",.agent)
+      Set sc=row.RestoreSession(agent,.session)
+      If session.MessageCount()'=0 Throw ##class(%Exception.General).%New("Skill command triggered inference or changed model history")
+      If ##class(AgentTestUI.Runtime).ActiveSkillIds(session).%ToJSON()'=skills.%ToJSON() Throw ##class(%Exception.General).%New("Activation did not survive restore")
+    }
+    If result.messages.%Size()'=2 Throw ##class(%Exception.General).%New("Missing command confirmations")
+    Set sc=##class(AgentTestUI.Runtime).UpdateSkills(id,["Test.Skill.NotAvailable"],.result)
+    If $$$ISOK(sc) Throw ##class(%Exception.General).%New("Invalid command accepted")
+    Set sc=$$$OK
+    Write "PASS: immediate skill commands, confirmation, restore, unload, invalid selection",!
+  } Catch ex {
+    Set sc=ex.AsStatus()
+  }
+  Set cleanup=##class(AgentTestUI.Runtime).Delete(id)
+  Quit sc
 }
 
 /// Exercise real SDK state transitions without an LLM request or saved conversation.
