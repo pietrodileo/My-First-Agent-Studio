@@ -8,38 +8,27 @@ the terminal output produced by the demos.
 
 ## Architecture overview
 
+```text
+Terminal demos                   Browser (React)
+       |                               |
+       |                         Nginx /api proxy
+       |                               |
+       +---------- IRIS ---------------+
+                     |
+             Native %AI.Agent
+               |     |     |
+               |     |     +-- Tools: ObjectScript / Python MCP
+               |     +-------- Sub-agents: isolated sessions
+               +-------------- Ollama: model inference
+                     |
+             SDK session and statistics
+                     |
+             UI runtime saves conversations in IRIS
 ```
-+------------------+     +------------------+
-|   Your Terminal  |---->|   IRIS Container  |
-+------------------+     +------------------+
-                           |
-                           | OpenAI-compatible API
-                           v
-                    +--------------+
-                    |   OLLAMA     |
-                    |   (host)     |
-                    +--------------+
-                           |
-         +-----------------+------------------+
-         |                 |                  |
-         v                 v                  v
-  +------------+    +------------+      +----------------+
-  | Native     |    | External   |      | Sub-Agents      |
-  | IRIS Tools |    | MCP Tools  |      | (Delegation)    |
-  +------------+    +------------+      +----------------+
-         |                 |                  |
-         +-----------------+------------------+
-                           |
-                    +--------------+
-                    |   %AI.Agent  |
-                    |   Session    |
-                    +--------------+
-                           |
-                    +--------------+
-                    |  Conversation |
-                    |  + Statistics|
-                    +--------------+
-```
+
+IRIS orchestrates model and tool calls. Ollama does not directly execute the
+ObjectScript or MCP tools. Terminal sessions are held by the caller; the UI
+runtime additionally persists its conversations.
 
 ### Components
 
@@ -283,15 +272,16 @@ the skill active by itself. `Test.BasicDemo` registers Caveman, then asks the
 model to use it; inspect `session.ActiveSkills` rather than inferring activation
 from the response style.
 
-The UI uses a different, deterministic path: `AgentTestUI.Runtime.ApplySkills`
-replaces the session's available and active skill snapshots before inference.
+The UI uses a different, deterministic path: `UpdateSkills` handles an explicit
+Load/Unload command and calls `AgentTestUI.Runtime.ApplySkills` to replace the
+session's available and active skill snapshots immediately, without inference.
 The selected class IDs are validated against the agent's `SKILLS` parameter.
 This avoids depending on the model to call `load_skill` or guess its name.
 For example, the Poet class is `Test.Skill.Poet`, but its loadable name is
 `talk-like-a-poet`, not `Talk Like A Poet`.
 
 Active skills normally persist in session state. The UI explicitly replaces
-that state on each send, so switching skills removes the old instructions and
+that state on each skill command and send, so switching skills removes the old instructions and
 an empty selection unloads all skills. Earlier conversation messages remain.
 See [Browser UI development](#browser-ui-development) for the implementation
 contract and tests.
@@ -305,6 +295,8 @@ src/Test/
 ├── Agents/                    # Agent classes
 │   ├── Agent.cls             # Base agent for project
 │   ├── MathAgent.cls         # Used by Test.BasicDemo
+│   ├── SimpleAgent.cls       # General chat with optional skills
+│   ├── IRISAgent.cls         # Instance inspection and demo writes
 │   └── CavemanAgent.cls      # Alternative agent
 │
 ├── Data/
@@ -324,6 +316,8 @@ src/Test/
 ├── Skill/                    # Skill classes
 │   ├── HealthcareAnalysis.cls    # For patient analysis
 │   ├── CalculationReview.cls    # For math
+│   ├── Poet.cls              # Poetic style
+│   ├── Echo.cls              # Echo, word count, sentiment
 │   └── Caveman.cls           # Concise responses
 │
 ├── SubAgents/                # Delegation tool classes
@@ -333,10 +327,12 @@ src/Test/
 │
 ├── Tools/                    # Tool classes
 │   ├── Patients.cls          # Native IRIS tools
+│   ├── IRISManagement.cls    # Instance inspection and dedicated demo global
 │   └── DelegateTasks.cls     # Generic delegation
 │
 └── ToolSet/                  # Tool collections
     ├── Local.cls             # Native tools (Patients)
+    ├── IRISManagement.cls    # Native instance tools
     └── StatisticsMCP.cls     # External MCP (Python)
 ```
 
@@ -346,9 +342,11 @@ src/Test/
 
 ```
 %AI.Agent (AI Hub base)
-    └── Test.Agent (our base agent)
-            ├── Test.MathAgent (BasicDemo)
-            └── Test.CavemanAgent (alternative)
+    ├── Test.Agent (healthcare agent and project base)
+    │       ├── Test.MathAgent (BasicDemo)
+    │       └── Test.CavemanAgent (alternative)
+    ├── Test.Agents.SimpleAgent (general conversation)
+    └── Test.Agents.IRISAgent (instance tools)
 ```
 
 ### `Test.Agent.%OnInit()`: agent initialization
@@ -537,33 +535,34 @@ Key characteristics:
 
 ## Skill implementations
 
-The project contains three skills:
+The project contains five skills. Availability depends on the selected agent's
+`SKILLS` declaration; registration and activation are separate operations:
 
-| Skill | Purpose | Activation |
-|-------|---------|------------|
-| `calculation-review` | Guides arithmetic calculations | Automatic (prompt) |
-| `synthetic-healthcare-analysis-brief` | Structures healthcare briefings | Automatic (prompt) |
-| `caveman` | Produces minimal, terse responses | Programmatic (code) |
+| Skill | Class | Purpose |
+| --- | --- | --- |
+| `calculation-review` | `Test.Skill.CalculationReview` | Arithmetic evidence and inverse checks |
+| `synthetic-healthcare-analysis-brief` | `Test.Skill.HealthcareAnalysis` | Evidence-bound synthetic-data briefings |
+| `talk-like-a-poet` | `Test.Skill.Poet` | Poetic response style |
+| `echo` | `Test.Skill.Echo` | Echo instructions, word-count and sentiment tools |
+| `caveman` | `Test.Skill.Caveman` | ULTRA compression with technical and safety detail preserved |
 
 ### Caveman skill example
 
-```objectscript
-Class Test.Skill.Caveman Extends %AI.Agent.Skill
-{
-XData INSTRUCTIONS [ MimeType="text/markdown" ]
-{
-  Respond tersely. Remove filler, pleasantries, repetition.
-  Keep all technical terms, numbers, units exact.
-  Use normal prose for warnings and safety boundaries.
-}
-}
+The full definition is in [Caveman.cls](src/Test/Skill/Caveman.cls). Its
+instructions make ULTRA the default whenever active: dense fragments, no
+filler, and a 3–12-word target for simple answers. Necessary detail, code,
+negation, units, uncertainty, and safety warnings must remain intact. Explicitly
+requested formats take precedence; there is no hard word-limit enforcement.
+
+One style example from the instructions is:
+
+```text
+User: Sum, average, largest, smallest of 12, 7, 25, 4, 18, 9?
+Answer: Sum: 75. Mean: 12.5. Max: 25. Min: 4.
 ```
 
-When active, the skill can transform a verbose response such as:
-```
-"The reason that multiplication by zero always returns zero is..."
-→ "Zero multiplied by any number equals zero. Zero groups mean nothing, so the product is zero."
-```
+Verify activation from session state, not whether a model obeys the compression
+target. The skill does not grant extra permissions or remove tool requirements.
 
 ### Skill structure
 
@@ -733,6 +732,26 @@ ClassMethod Run(model As %String="") As %Status
 
 ## Browser UI development
 
+### IRISAgent example
+
+The new screenshots use [IRISAgent](src/Test/Agents/IRISAgent.cls), a direct
+`%AI.Agent` subclass declaring `Test.ToolSet.IRISManagement` and the Caveman
+and Echo skills. Its provider uses the same Ollama environment variables as
+the other examples. The tool implementations are in
+[IRISManagement.cls](src/Test/Tools/IRISManagement.cls):
+
+| Method | Behavior |
+| --- | --- |
+| `LargestGlobals` | Returns up to 20 globals with estimated sizes in MB and the namespace. |
+| `ReadGlobalContent` | Samples up to 20 root/top-level values, each truncated to 500 characters. |
+| `CreateDemoGlobal` | Creates or updates one node in `^TestIRISAgent`; key/value limits are 100/500 characters. |
+| `WebApplicationExists` | Checks registration of an application path through `Security.Applications`. |
+
+The pictured prompt exercises `LargestGlobals`. Names and sizes vary with
+instance state; compare the returned evidence, not a hard-coded screenshot.
+Global reads can expose instance data. These tools and the unauthenticated
+UI are for a trusted demo environment, not production administration.
+
 ### Components and routing
 
 The optional `ui` Compose profile builds React with Vite and serves the static
@@ -742,7 +761,9 @@ application in `FIRST_AGENT`.
 
 | File or class | Responsibility |
 |---|---|
-| `frontend/src/main.jsx` | Agent/model selection, chat history, skill toggles, composer, API errors |
+| `frontend/src/main.jsx` | Collapsible panels, history, immediate skill commands, auto-growing composer, API errors |
+| `frontend/src/markdown.js` | Math normalization and Markdown/GFM/KaTeX plugins |
+| `frontend/src/markdown.test.js` | Math delimiter and protected-content regression tests |
 | `frontend/src/style.css` | Sidebar, scrollable details, messages, responsive layout |
 | `frontend/nginx.conf` | Same-origin API proxy; 300-second read/send timeouts |
 | `AgentTestUI.REST.Router` | JSON endpoints and Ollama model discovery |
@@ -750,9 +771,13 @@ application in `FIRST_AGENT`.
 | `AgentTestUI.Data.Conversation` | IRIS persistence for session export, messages, selected skills, metadata |
 | `AgentTestUI.Test` | Discovery and SDK skill-state regression checks |
 
-Markdown uses `react-markdown` with `remark-gfm`; a custom table wrapper allows
-horizontal scrolling. The composer sends on Enter and inserts a newline on
-Shift+Enter. Replies are returned as a complete JSON response, not streamed.
+Markdown uses `react-markdown`, `remark-gfm`, `remark-math`, and `rehype-katex`.
+`normalizeMath` converts supported LaTeX delimiters outside protected code,
+links, HTML, and existing math. A custom table wrapper allows horizontal
+scrolling. The composer sends on Enter and inserts a newline on Shift+Enter.
+Its height is recalculated after text and width changes, up to
+`clamp(80px, 30dvh, 240px)`, then it scrolls vertically. Replies arrive as a
+complete JSON response.
 The provider display currently represents Ollama; it is not a multi-provider
 selector. Model discovery queries `/api/tags` on the configured Ollama host,
 falling back to `OLLAMA_MODEL` if discovery is unavailable.
@@ -768,8 +793,9 @@ Paths below are relative to the frontend's `/api` prefix.
 | GET | `/conversations` | Recent conversations, newest first |
 | POST | `/conversations` | Create a conversation; returns `conversationId` with HTTP 201 |
 | GET | `/conversations/:id` | Restore messages, agent, model, and saved `activeSkills` |
-| POST | `/conversations/:id/messages` | Send a message; returns `content`, `stats`, and actual `activeSkills` |
-| DELETE | `/conversations/:id` | Delete a conversation; returns HTTP 204 |
+| POST | `/conversations/:id/messages` | Send a message; returns `content`, `role`, `recovered`, `stats`, and actual `activeSkills` |
+| POST | `/conversations/:id/skills` | Apply the complete skill selection immediately; return updated conversation and Studio confirmation |
+| DELETE | `/conversations/:id` | Delete a conversation; clients accept a successful 2xx response |
 
 Create a chat, then substitute the returned ID in subsequent requests:
 
@@ -787,6 +813,17 @@ curl -sS http://localhost:5174/api/conversations/CONVERSATION_ID/messages \
   -d '{"message":"What is 2 plus 2? Answer plainly.","activeSkills":[]}'
 ```
 
+To activate a skill without a model request:
+
+```bash
+curl -sS http://localhost:5174/api/conversations/CONVERSATION_ID/skills \
+  -H 'Content-Type: application/json' \
+  -d '{"activeSkills":["Test.Skill.Caveman"]}'
+```
+
+Send `{"activeSkills":[]}` to that endpoint to unload all skills. The response
+is the updated conversation, including visible messages and active IDs.
+
 `activeSkills` is the complete desired selection, not a list of changes. Its
 entries are class names allowed by the selected agent. An empty array means
 all off; an omitted field currently defaults to an empty array in the router.
@@ -802,11 +839,16 @@ active snapshot includes the skill ID, name, version, source, content hash,
 instruction snapshot, and activation timestamp. This uses the current preview
 SDK export format: rerun the regression checks after SDK upgrades.
 
-After a successful nonempty reply, the runtime saves the session, visible
+After a completed turn (including empty-answer recovery), the runtime saves the session, visible
 messages, and `ActiveSkillIds(session)`. The frontend adopts those returned IDs,
 so it does not merely echo a possibly incorrect selection as active. New chats
-start empty; reopening an existing chat restores its saved state. Toggles are
-local until the next submission and are disabled during inference.
+start empty; reopening an existing chat restores its saved state. Load/Unload
+commands persist immediately through `UpdateSkills`, with a visible `notice`
+rendered as **Studio**. These confirmations are not model-generated and are
+not inserted into the model transcript. The frontend adopts confirmed server
+state, shows **Saving…** during the command, and disables mutations while busy.
+Loading before a first prompt creates the conversation; agent and model are
+then locked until **New chat**.
 
 Unloading removes active instructions, not earlier conversation content. It is
 not a tool-permission boundary: agent initialization can still register tools.
@@ -827,12 +869,35 @@ before any deployment beyond a trusted local demo.
   its own error and replacing it with a generic HTTP failure.
 - Keep `IgnoreWrites` and the explicit `IgnoreRESTOutput` handling in the
   router: monitor output must not contaminate JSON responses.
-- A model may return an empty reply after tool calls. The runtime rejects it
-  without saving that turn. Retry or select another model.
+- If `agent.Run()` returns empty content, `RecoverReply` makes one text-only
+  completion over the exported transcript and active instructions. No tools
+  are offered and the task is not replayed. A recovered answer is saved with
+  `role: "assistant"` and `recovered: 1`. If recovery is also empty, the turn
+  and tool results are saved with `role: "notice"` and `recovered: 0`. The
+  Studio notice warns that tools may have run; inspect outcomes before retrying.
+  This branch does not handle arbitrary exceptions from the initial run.
 - Older saved null assistant replies can cause HTTP 400 with
   `invalid message content type: <nil>`. `ApplySkills` removes empty assistant
   messages without tool calls from model context, while preserving legitimate
   tool-call messages and visible chat history.
+
+### Screenshot references
+
+The current screenshots live in [pic/](pic/) and appear together in the
+[README showcase](README.md#ui-showcase). Use them when checking the UI:
+
+| Screenshot | Visible state |
+| --- | --- |
+| [Homepage](pic/1_homepage.png) | IRISAgent, collapsed Recent chats, expanded configuration and capabilities |
+| [Chat example](pic/2_chat_example.png) | Estimated global-size table, locked configuration, collapsed agent details |
+| [Poet example](pic/3_example_talk_like_a_poet.png) | Activation notice, Poet active, arithmetic explanation |
+| [Skill loading](pic/4_skill_loading.png) | Caveman active, Unload action, Studio confirmation |
+| [Model choice](pic/5_model_choice.png) | Installed-model dropdown; names depend on the Ollama host |
+
+The model-choice capture includes an older connection-status label. Current
+code displays **Local inference · Ollama**; neither a provider label nor a
+model list is a continuous health check. Screenshots illustrate output, not
+fixed expected global sizes or guaranteed model behavior.
 
 ### Build and verification
 
@@ -854,6 +919,16 @@ installing its dependencies. `npm run dev` starts Vite, but the current Vite
 configuration has no `/api` proxy; use the Docker UI for end-to-end tests unless
 you configure a development proxy explicitly.
 
+Run the Markdown regression tests independently of IRIS:
+
+```bash
+node --test frontend/src/markdown.test.js
+```
+
+Also check multiline typing/paste, shrinking after send, vertical scrolling at
+the height limit, and resizing the viewport. Verify Configuration, Recent chats,
+and Selected agent expand/collapse without losing the conversation.
+
 After importing changed ObjectScript classes into `FIRST_AGENT`, run:
 
 ```bash
@@ -867,12 +942,14 @@ Write $SYSTEM.Status.GetErrorText(sc),!
 
 These checks exercise discovery, all-off defaults, activation, replacement,
 unloading, export/import restoration, invalid skill rejection, and recovery
-from legacy null replies without calling the LLM or saving a conversation.
+from legacy null replies, plus immediate command persistence and confirmation.
+They make no LLM calls; the command test creates and deletes its own conversation.
 
 For an end-to-end check, create a new UI chat with `Test.Agents.SimpleAgent`:
-enable Poet and send a prompt, switch to Echo and send another, then disable all
-skills and send again. Confirm the controls match each returned `activeSkills`
-array, Off stays Off, and reopening the chat restores its state. Repeat with
+load Poet and check the Studio confirmation before sending a prompt. Unload
+Poet, load Echo, then unload all skills. Confirm each command updates the
+active count and composer summary immediately, and reopening the chat restores
+its state. Repeat with
 the API examples above. Inspect actual session state rather than relying only
 on poetic or terse wording; model output varies.
 
@@ -969,7 +1046,7 @@ Write "Model: ",agent.Model,!
 Parameter OLLAMABASEURL="http://host.docker.internal:11434/v1/"
 Parameter DESCRIPTION="Synthetic healthcare dataset analysis agent."
 Parameter TOOLSETS="Test.ToolSet.Local,Test.ToolSet.StatisticsMCP"
-Parameter SKILLS="Test.Skill.HealthcareAnalysis"
+Parameter SKILLS="Test.Skill.HealthcareAnalysis,Test.Skill.Poet,Test.Skill.Echo"
 ```
 
 **Test.MathAgent.cls:**
@@ -1018,14 +1095,14 @@ Available Tools: [...]              All tools registered in ToolManager
 
 [agent iteration 1/5]               Iteration 1 of max 5
 Token usage: {...}                  Tokens used in this iteration
-Total tool calls: 2                 Tool calls in this Run() call
+Total tool calls: 2                 Cumulative session tool calls
 
 [CalculationReviewer] called as tool  CalculationReviewer tool was invoked
 [Delegation] Creating sub-agent...   Execute tool creating sub-agent
 [Delegation] Sub-agent completed     Sub-agent finished task
 
 =================================              New prompt phase
-Prompt>: Using caveman skill...      Programmatic skill activation
+Prompt>: Using caveman skill...      Skill registered; prompt requests use
 [agent iteration 1/5]               Iteration for caveman phase
 
 --- Response: ---                   Caveman skill output (terse)
@@ -1046,14 +1123,14 @@ OUTPUT LINE                          WHAT IT MEANS
 ─────────────────────────────────────────────────────────────
 
 [agent iteration 1/10]              Iteration 1 of max 10
-Total tool calls: 4                 SummarizePatients + SearchPatients + 
-                                   summarize_measurements (2 calls each?)
+Total tool calls: 4                 Cumulative session tool calls; inspect
+                                   the trace for the actual tools used
 
 --- Parent analysis ---             Briefing generated by parent agent
 Synthetic Healthcare Briefing...      Structured output from skill
 
 [EvidenceReviewer] called as tool   Evidence review delegation
-Total tool calls: 8                  Cumulative for this Run() call
+Total tool calls: 8                  Cumulative session tool calls
 
 --- Evidence sub-agent ---           Result from EvidenceReviewer
 Synthetic Healthcare Briefing...      Reviewed briefing

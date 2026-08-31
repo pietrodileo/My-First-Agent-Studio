@@ -298,11 +298,19 @@ For your own prompts, use the [manual terminal session in the README](README.md#
 
 Once the terminal flow is clear, the browser provides a more convenient place to repeat experiments.
 
-![SimpleAgent conversation showing the sidebar, local model, and Markdown table](pic/image_1.png)
+![IRISAgent homepage with its suggested prompt and available skills](pic/1_homepage.png)
 
-*The simple chat agent answering a DBMS question. The conversation is rendered by React, but the agent runs in IRIS.*
+*The starting screen with IRISAgent selected. Recent chats, Configuration, and Selected agent can be collapsed independently.*
 
-Select an agent, choose a model, and send a message. The workspace supports Markdown tables and code blocks, shows execution statistics, and lets you reopen saved conversations from **Recent chats**.
+Select an agent, choose a model, and send a message. The composer expands as you type or paste multiple lines, then scrolls vertically at its height limit. Enter sends; Shift+Enter inserts a newline. Replies support Markdown tables, code blocks, and KaTeX math rendering. The workspace shows execution statistics and lets you reopen saved conversations from **Recent chats**.
+
+![IRISAgent response listing globals and estimated sizes](pic/2_chat_example.png)
+
+*“Show the five largest globals in this namespace.” The table contains estimates from this instance; another installation will produce different values.*
+
+This example uses [IRISAgent](src/Test/Agents/IRISAgent.cls) and its [IRISManagement toolset](src/Test/ToolSet/IRISManagement.cls). The native `LargestGlobals` method bounds the requested result count to 1–20, queries global sizes, and returns the namespace, units, and an explicit estimated-size flag. The model turns that result into an explanation. The screenshot also shows one recorded tool call: the table alone would not prove execution.
+
+The toolset additionally exposes a bounded content sample, a web-application existence check, and a write method restricted to the dedicated `^TestIRISAgent` demo global. It is not a production administration console; global reads can expose instance data, so keep this demo in a trusted environment.
 
 ### How agents appear without frontend registration
 
@@ -314,25 +322,43 @@ This keeps the agent definition in ObjectScript. Adding a class does not require
 
 ### Choose from your installed Ollama models
 
-![Model selector populated with models from the configured Ollama instance](pic/model_choice.png)
+![Model selector populated with models from the configured Ollama instance](pic/5_model_choice.png)
 
 *The model list comes from the configured Ollama instance, not a hard-coded catalog.*
 
 The [REST router](src/AgentTestUI/REST/Router.cls) retrieves installed models through Ollama's `/api/tags` endpoint. After pulling another model, reload the browser to refresh the list. If discovery produces no models, the UI falls back to `OLLAMA_MODEL`; that fallback does not download anything or prove that the server is reachable.
 
-The selected model is saved when a conversation is created. To compare two models, start a new chat for each and use the same agent, skill selection, and prompt. Changing the dropdown does not switch the model of an existing conversation.
+The selected model is saved when a conversation is created. To compare two models, start a new chat for each and use the same agent, skill selection, and prompt. Agent and model controls are disabled once a conversation exists. The pictured model names reflect that local installation, not a required model list or a compatibility guarantee.
 
-### Change skills before the next turn
+### Load a skill and see its state
 
-![Skill controls with Caveman enabled and Echo disabled](pic/image_2.png)
+![Caveman loaded with an immediate Studio confirmation](pic/4_skill_loading.png)
 
-*Skills can be selected independently before submitting the next message.*
+*The Load action has completed: Caveman is marked Active, the button now says Unload, and Studio confirms the saved change.*
 
-New chats start with skills off. Unlike the manual terminal example, the UI applies the selected skill instructions before inference, so no activation prompt is required.
+New chats start with no active skills. Clicking **Load** sends an explicit command to IRIS, which activates the instructions immediately and saves the session. It also adds a **Studio** confirmation to the visible conversation. That message comes from the application, not the model; no inference request is needed to activate a skill.
 
-The runtime validates the selection against the agent's declared skills, registers them, and updates the session's active instruction snapshots through session export/import. This is preview-specific implementation code worth inspecting when upgrading the SDK.
+In [AgentTestUI.Runtime](src/AgentTestUI/Runtime.cls), `UpdateSkills()` validates the selected class IDs, registers the skills, restores the session, and calls `ApplySkills()`. The latter replaces the available and active instruction snapshots through session export/import. Finally, the runtime saves the session, active IDs, and confirmation message. This preview-specific implementation deserves regression checks when upgrading the SDK.
 
-Turning a skill off changes the active instructions for the next turn; it does not erase earlier messages. For a clean comparison of response styles, start separate conversations.
+The frontend uses `POST /api/conversations/:id/skills` and adopts the state returned by the server. It does not mark a skill active before the request succeeds. Loading before the first prompt creates the conversation, so select your agent and model first. Skill changes are disabled while another request is running.
+
+![SimpleAgent answering a calculation prompt with Poet active](pic/3_example_talk_like_a_poet.png)
+
+*Poet changes how SimpleAgent explains the calculation. The activation notice and active-state controls are separate from the model's prose.*
+
+For a reproducible prompt, use:
+
+```text
+You have the numbers: 12, 7, 25, 4, 18, 9.
+Find the sum, average, largest number, and smallest number.
+Then explain your calculations briefly and give the final results in a table.
+```
+
+The expected values are 75, 12.5, 25, and 4. Compare separate conversations with Poet and Caveman: the calculation should stay the same while the wording changes. This tests style and arithmetic output; it does not establish that a calculation tool was used. The pictured Poet reply records zero tool calls.
+
+[Caveman](src/Test/Skill/Caveman.cls) specifies **ULTRA** directly in its instructions: keyword-first fragments, no filler, and a 3–12-word target for simple answers. There is no extra mode to request after loading it. Required detail, valid code, and explicit safety warnings take priority over brevity. These are model instructions, not a guaranteed word limit.
+
+**Unload** removes the active instructions immediately, but does not erase earlier messages. The sidebar count and summary above the composer show the current selection. For a clean style comparison, use separate chats; prior wording remains part of an existing conversation.
 
 Chat history and SDK session state are stored in IRIS, not browser storage. Reopening a conversation restores the saved context and skills. Persistence has a deployment caveat: this Compose configuration has no explicitly configured persistent IRIS data volume, so back up data before replacing the container.
 
@@ -368,9 +394,12 @@ Expected output includes:
 PASS: native %AI.Agent discovery
 PASS: skill defaults, activation, replacement, unload, restore, validation
 PASS: legacy null reply recovery preserves valid history
+PASS: immediate skill commands, confirmation, restore, unload, invalid selection
 ```
 
 These tests cover discovery and session handling, not the quality of a particular model. For an end-to-end check, run both demos, verify the arithmetic tool result, inspect the healthcare evidence, and reopen a browser conversation after a page reload. Exact wording and token counts will vary.
+
+If a run ends without answer text, the browser runtime attempts one text-only completion over the existing transcript and tool results. It does not replay the tools. If no answer is available after that attempt, it saves the turn with a Studio notice. Inspect action outcomes before retrying: a missing answer does not mean nothing executed. Other provider or tool exceptions still surface as errors.
 
 There are also clear limits to the current setup. It uses a preview SDK, exposes an unauthenticated demo API, and shares chat history rather than isolating it by user. Keep it on a trusted local environment. Model-based reviewers and safety instructions are examples to study, not substitutes for application security or domain validation.
 
@@ -378,4 +407,4 @@ My goal with this project is to make the first few agent experiments concrete: c
 
 The [README](README.md) keeps the runnable examples and manual tests together. For class relationships, API details, and implementation notes, continue with the [developer guide](dev.md).
 
-<!-- Publishing note: upload the three pic/ images to Developer Community and update their URLs. Resolve repository-relative source links against https://github.com/pietrodileo/My-First-Agent-Studio when publishing outside the repository. -->
+<!-- Publishing note: upload the five pic/ images to Developer Community and update their URLs. Resolve repository-relative source links against https://github.com/pietrodileo/My-First-Agent-Studio when publishing outside the repository. -->

@@ -13,6 +13,7 @@ XData UrlMap
 <Route Url="/conversations" Method="POST" Call="Start"/>
 <Route Url="/conversations/:id" Method="GET" Call="Conversation"/>
 <Route Url="/conversations/:id/messages" Method="POST" Call="Send"/>
+<Route Url="/conversations/:id/messages/stream" Method="POST" Call="SendStream"/>
 <Route Url="/conversations/:id/skills" Method="POST" Call="UpdateSkills"/>
 <Route Url="/conversations/:id" Method="DELETE" Call="Delete"/>
 </Routes>
@@ -118,6 +119,18 @@ ClassMethod Send(id As %String) As %Status
   Set %response.IgnoreRESTOutput=0
   Write result.%ToJSON()
   Set %response.IgnoreRESTOutput=1
+  Quit $$$OK
+}
+
+/// Opt-in SSE transport. The existing JSON send route remains unchanged.
+ClassMethod SendStream(id As %String) As %Status
+{
+  Set body=..Body(.sc)
+  If $$$ISERR(sc) Quit ..WriteError(sc,400)
+  Set stream=##class(AgentTestUI.Streaming).%New()
+  Set sc=stream.Prepare(id,body)
+  If $$$ISERR(sc) Quit ..WriteError(sc,400)
+  Do stream.Run()
   Quit $$$OK
 }
 
