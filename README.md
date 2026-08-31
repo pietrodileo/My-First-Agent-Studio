@@ -24,6 +24,8 @@ This folder contains the IRIS backend, React frontend, Python MCP server,
 synthetic dataset, and container configuration. It can be run independently
 of the other projects in the parent repository.
 
+More information about this project: [`My First Agent Studio: building and testing native IRIS agents with AI Hub and Ollama`](https://community.intersystems.com/post/my-first-agent-studio-building-and-testing-native-iris-agents-ai-hub-and-ollama)
+
 ## Why this project exists
 
 The project brings together a **first-agent tutorial** and a **native agent
